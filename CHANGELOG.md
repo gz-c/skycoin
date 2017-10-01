@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## [Unreleased]
 
 ### Added
+### Changed
+### Deprecated
+### Removed
+### Fixed
+### Security
+
+## [0.20.0] - TBD
+
+### Added
 
 - Added fractional coin support. Allow up to one decimal place (of a maximum
   of 6).
@@ -69,8 +78,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - #494 Clean invalid unconfirmed transactions during startup.
 - Various race conditions around the bolt.DB blockchain DB
 - Missing `strand()` call in `daemon.Visor.AnnounceTxns`.
-
-### Security
 
 ## [0.19.1] - 2017-08-26
 
