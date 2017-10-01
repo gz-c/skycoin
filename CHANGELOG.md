@@ -50,10 +50,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Use BIP32 mnemomic seeds by default in `address_gen`.
 - Add `-x` option to `address_gen`, to generate a random base64-encoded 128-bit
   seed instead of a BIP32 mnemomic seed.
-- Add `-v` option to `address_gen` to print all address information
-  (pubkey, seckey, address, seed) to stdout as JSON.
-- All API and CLI methods with "coin"-related arguments must be a string and
-  can use decimal notation to specify coin amounts.
+- `address_gen` prints all info by default (seed, pubkey, seckey, addresses).
+  Use `-only-addr` to show only addresses.
+- APIs (including CLI) which previously accepted whole skycoin amounts,
+  must be strings, e.g. "999" or "100.7". Any decimal value returned to the
+  user will be in string format .
 - A user is prevented from broadcasting a new transaction with unspent outputs
   that they have already sent as an unconfirmed transaction.
 
