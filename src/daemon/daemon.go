@@ -37,8 +37,6 @@ var (
 	ErrDisconnectIntroductionTimeout gnet.DisconnectReason = errors.New("Version timeout")
 	// ErrDisconnectVersionSendFailed version send failed
 	ErrDisconnectVersionSendFailed gnet.DisconnectReason = errors.New("Version send failed")
-	// ErrDisconnectIsBlacklisted is blacklisted
-	ErrDisconnectIsBlacklisted gnet.DisconnectReason = errors.New("Blacklisted")
 	// ErrDisconnectSelf self connnect
 	ErrDisconnectSelf gnet.DisconnectReason = errors.New("Self connect")
 	// ErrDisconnectConnectedTwice connect twice
@@ -143,7 +141,7 @@ type DaemonConfig struct {
 	PendingMax int
 	// How long to wait for a version packet
 	IntroductionWait time.Duration
-	// How often to check for peers that have decided to stop communicating
+	// How often to check for peers that have not sent an introductory version packet
 	CullInvalidRate time.Duration
 	// How many connections are allowed from the same base IP
 	IPCountsMax int
@@ -165,7 +163,7 @@ func NewDaemonConfig() DaemonConfig {
 		Version:                    2,
 		Address:                    "",
 		Port:                       6677,
-		OutgoingRate:               time.Second * 5,
+		OutgoingRate:               time.Second * 3,
 		PrivateRate:                time.Second * 5,
 		OutgoingMax:                16,
 		PendingMax:                 16,
@@ -368,7 +366,6 @@ func (dm *Daemon) Run() error {
 	privateConnectionsTicker := time.Tick(dm.Config.PrivateRate)
 	cullInvalidTicker := time.Tick(dm.Config.CullInvalidRate)
 	outgoingConnectionsTicker := time.Tick(dm.Config.OutgoingRate)
-	// clearOldPeersTicker := time.Tick(dm.Peers.Config.CullRate)
 	requestPeersTicker := time.Tick(dm.Pex.Config.RequestRate)
 	clearStaleConnectionsTicker := time.Tick(dm.Pool.Config.ClearStaleRate)
 	idleCheckTicker := time.Tick(dm.Pool.Config.IdleCheckRate)
@@ -644,12 +641,19 @@ func (dm *Daemon) connectToRandomPeer() {
 		if p.HasIncomingPort {
 			// Try to connect the peer if it's ip:mirror does not exist
 			if _, exist := dm.getMirrorPort(p.Addr, dm.Messages.Mirror); !exist {
-				dm.connectToPeer(p)
-				continue
+				if err := dm.connectToPeer(p); err != nil {
+					logger.Error("connectToPeer failed: %v", err)
+					continue
+				}
+				break
 			}
 		} else {
 			// Try to connect to the peer if we don't know whether the peer have public port
-			dm.connectToPeer(p)
+			if err := dm.connectToPeer(p); err != nil {
+				logger.Error("connectToPeer failed: %v", err)
+				continue
+			}
+			break
 		}
 	}
 
@@ -673,22 +677,21 @@ func (dm *Daemon) cullInvalidConnections() {
 	// This method only handles the erroneous people from the DHT, but not
 	// malicious nodes
 	now := utc.Now()
-	addrs, err := dm.expectingIntroductions.CullInvalidConns(
-		func(addr string, t time.Time) (bool, error) {
-			conned, err := dm.Pool.Pool.IsConnExist(addr)
-			if err != nil {
-				return false, err
-			}
+	addrs, err := dm.expectingIntroductions.CullInvalidConns(func(addr string, t time.Time) (bool, error) {
+		conned, err := dm.Pool.Pool.IsConnExist(addr)
+		if err != nil {
+			return false, err
+		}
 
-			if !conned {
-				return true, nil
-			}
+		if !conned {
+			return true, nil
+		}
 
-			if t.Add(dm.Config.IntroductionWait).Before(now) {
-				return true, nil
-			}
-			return false, nil
-		})
+		if t.Add(dm.Config.IntroductionWait).Before(now) {
+			return true, nil
+		}
+		return false, nil
+	})
 
 	if err != nil {
 		logger.Error("expectingIntroduction cull invalid connections failed: %v", err)
@@ -732,14 +735,20 @@ func (dm *Daemon) processMessageEvent(e MessageEvent) {
 	// We have to check at process time and not record time because
 	// Introduction message does not update ExpectingIntroductions until its
 	// Process() is called
-	// _, needsIntro := self.expectingIntroductions[e.Context.Addr]
-	// if needsIntro {
 	if dm.needsIntro(e.Context.Addr) {
 		_, isIntro := e.Message.(*IntroductionMessage)
 		if !isIntro {
 			dm.Pool.Pool.Disconnect(e.Context.Addr, ErrDisconnectNoIntroduction)
 		}
 	}
+
+	// Update the peer's LastSeen every time we process a message from them
+	if e.Context != nil && e.Context.Addr != "" {
+		if err := dm.Pex.UpdateLastSeen(e.Context.Addr); err != nil {
+			logger.Error(err)
+		}
+	}
+
 	e.Message.Process(dm)
 }
 

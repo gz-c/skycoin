@@ -149,6 +149,16 @@ func (pl *peerlist) removePeer(addr string) {
 	delete(pl.peers, addr)
 }
 
+// updateLastSeen updates peer's LastSeen value
+func (pl *peerlist) updateLastSeen(addr string) error {
+	if p, ok := pl.peers[addr]; ok {
+		p.Seen()
+		return nil
+	}
+
+	return fmt.Errorf("updateLastSeen failed: %v does not exist in peer list", addr)
+}
+
 // SetPrivate sets specific peer as private
 func (pl *peerlist) setPrivate(addr string, private bool) error {
 	if p, ok := pl.peers[addr]; ok {

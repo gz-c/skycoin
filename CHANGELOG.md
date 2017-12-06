@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 * Fix change hours calculation. Previous gave 1/8 to change and destination addresses; now gives 1/4 to each
 * #653, the peerlist size was too small and could be easily filled up; default changed to 65535 from 1000
+* Connect to one random peer at a time
+* Update peer's LastSeen value for every message received
 
 ### Changed
 
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 * `/wallet/spend` will try to maximize the number of UxOuts used to create a transaction.
 * Coinhour burn fee change to 1/3 from 1/2 of coinhour inputs.
 * Update the default peerlist size to 65535 from 1000
+* Remove peers from peerlist after 3 days of being idle
 
 ## [0.20.4] - 2017-11-22
 

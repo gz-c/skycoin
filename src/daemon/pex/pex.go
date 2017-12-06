@@ -48,8 +48,6 @@ var (
 	ErrNotExternalIP = errors.New("IP is not a valid external IP")
 	// ErrPortTooLow is returned if a port is less than 1024
 	ErrPortTooLow = errors.New("Port must be >= 1024")
-	// ErrBlacklistedAddress returned when attempting to add a blacklisted peer
-	ErrBlacklistedAddress = errors.New("Blacklisted address")
 
 	// Logging. See http://godoc.org/github.com/op/go-logging for
 	// instructions on how to include this log's output
@@ -156,12 +154,8 @@ type Config struct {
 	Max int
 	// Cull peers after they havent been seen in this much time
 	Expiration time.Duration
-	// Cull expired peers on this interval
-	CullRate time.Duration
 	// clear old peers on this interval
 	ClearOldRate time.Duration
-	// How often to clear expired blacklist entries
-	UpdateBlacklistRate time.Duration
 	// How often to request peers via PEX
 	RequestRate time.Duration
 	// How many peers to send back in response to a peers request
@@ -181,19 +175,17 @@ type Config struct {
 // NewConfig creates default pex config.
 func NewConfig() Config {
 	return Config{
-		DataDirectory:       "./",
-		Max:                 1000,
-		Expiration:          time.Hour * 24 * 7,
-		CullRate:            time.Minute * 10,
-		ClearOldRate:        time.Minute * 10,
-		UpdateBlacklistRate: time.Minute,
-		RequestRate:         time.Minute,
-		ReplyCount:          30,
-		AllowLocalhost:      false,
-		Disabled:            false,
-		NetworkDisabled:     false,
-		DownloadPeerList:    false,
-		PeerListURL:         DefaultPeerListURL,
+		DataDirectory:    "./",
+		Max:              1000,
+		Expiration:       time.Hour * 24 * 3,
+		ClearOldRate:     time.Minute,
+		RequestRate:      time.Minute,
+		ReplyCount:       30,
+		AllowLocalhost:   false,
+		Disabled:         false,
+		NetworkDisabled:  false,
+		DownloadPeerList: false,
+		PeerListURL:      DefaultPeerListURL,
 	}
 }
 
@@ -406,6 +398,20 @@ func (px *Pex) AddPeers(addrs []string) int {
 
 	px.peerlist.addPeers(addrs)
 	return len(addrs)
+}
+
+// UpdateLastSeen updates peer's LastSeen value
+func (px *Pex) UpdateLastSeen(addr string) error {
+	px.Lock()
+	defer px.Unlock()
+
+	cleanAddr, err := validateAddress(addr, px.Config.AllowLocalhost)
+	if err != nil {
+		logger.Error("Invalid address %s: %v", addr, err)
+		return ErrInvalidAddress
+	}
+
+	return px.peerlist.updateLastSeen(cleanAddr, private)
 }
 
 // SetPrivate updates peer's private value

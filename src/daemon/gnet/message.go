@@ -81,7 +81,6 @@ type Message interface {
 
 // MessageContext message context
 type MessageContext struct {
-	// Conn *Connection // connection message was received from
 	ConnID int // connection message was received from
 	Addr   string
 }
