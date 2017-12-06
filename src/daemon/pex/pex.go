@@ -491,6 +491,13 @@ func (px *Pex) TrustedPublic() Peers {
 	return px.peerlist.getPeers(isPublic, isTrusted)
 }
 
+// RandomTrustedPublic returns N random trusted public peers
+func (px *Pex) RandomTrustedPublic(n int) Peers {
+	px.RLock()
+	defer px.RUnlock()
+	return px.peerlist.random(n, isPublic, isTrusted)
+}
+
 // RandomPublic returns N random public peers
 func (px *Pex) RandomPublic(n int) Peers {
 	px.RLock()

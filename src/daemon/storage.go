@@ -9,42 +9,54 @@ import (
 
 // base storage struct
 type store struct {
+	sync.RWMutex
 	value map[interface{}]interface{}
-	lk    sync.Mutex
 }
 
 type storeFunc func(*store) error
 type matchFunc func(k interface{}, v interface{}) bool
 
 func (s *store) setValue(k interface{}, v interface{}) {
-	s.lk.Lock()
+	s.Lock()
+	defer s.Unlock()
 	s.value[k] = v
-	s.lk.Unlock()
 }
 
 func (s *store) getValue(k interface{}) (interface{}, bool) {
-	s.lk.Lock()
-	defer s.lk.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	v, ok := s.value[k]
 	return v, ok
 }
 
 func (s *store) do(sf storeFunc) error {
-	s.lk.Lock()
-	defer s.lk.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	return sf(s)
 }
 
 func (s *store) remove(k interface{}) {
-	s.lk.Lock()
+	s.Lock()
+	defer s.Unlock()
 	delete(s.value, k)
-	s.lk.Unlock()
 }
 
 func (s *store) len() int {
-	s.lk.Lock()
-	defer s.lk.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 	return len(s.value)
+}
+
+func (s *store) keys() []interface{} {
+	s.RLock()
+	defer s.RUnlock()
+
+	keys := make([]interface{}, 0, len(s.value))
+	for _, k := range s.value {
+		keys = append(keys, k)
+	}
+
+	return keys
 }
 
 // ExpectIntroductions records connections that are expecting introduction msg.
@@ -173,6 +185,16 @@ func (oc *OutgoingConnections) Get(addr string) bool {
 // Len returns the outgoing connections count
 func (oc *OutgoingConnections) Len() int {
 	return oc.len()
+}
+
+// All returns all outgoing connection addresses
+func (oc *OutgoingConnections) All() []string {
+	keys := oc.store.keys()
+	addrs := make([]string, len(keys))
+	for i, k := range keys {
+		addrs[i] = k.(string)
+	}
+	return keys
 }
 
 // PendingConnections records pending connection peers

@@ -164,6 +164,7 @@ func NewDaemonConfig() DaemonConfig {
 		Address:                    "",
 		Port:                       6677,
 		OutgoingRate:               time.Second * 3,
+		TrustedPublicOutgoingRate:  time.Second * 1,
 		PrivateRate:                time.Second * 5,
 		OutgoingMax:                16,
 		PendingMax:                 16,
@@ -366,18 +367,10 @@ func (dm *Daemon) Run() error {
 	privateConnectionsTicker := time.Tick(dm.Config.PrivateRate)
 	cullInvalidTicker := time.Tick(dm.Config.CullInvalidRate)
 	outgoingConnectionsTicker := time.Tick(dm.Config.OutgoingRate)
+	trustedPublicOutgoingConnectionsTicker := time.Tick(dm.Config.TrustedPublicOutgoingRate)
 	requestPeersTicker := time.Tick(dm.Pex.Config.RequestRate)
 	clearStaleConnectionsTicker := time.Tick(dm.Pool.Config.ClearStaleRate)
 	idleCheckTicker := time.Tick(dm.Pool.Config.IdleCheckRate)
-
-	// Connect to trusted peers
-	if !dm.Config.DisableOutgoingConnections {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			dm.connectToTrustPeer()
-		}()
-	}
 
 	var err error
 	var elapser = elapse.NewElapser(daemonRunDurationThreshold, logger)
@@ -429,11 +422,25 @@ loop:
 		case <-outgoingConnectionsTicker:
 			// Fill up our outgoing connections
 			elapser.Register("outgoingConnectionsTicker")
-			trustPeerNum := len(dm.Pex.Trusted())
+
+			// Save at least one slot for trusted peers
+			trustedPeerNum := len(dm.filterOutgoingConnections(dm.Pex.Trusted()))
+			if trustedPeerNum < 1 {
+				trustedPeerNum = 1
+			}
+
 			if !dm.Config.DisableOutgoingConnections &&
-				dm.outgoingConnections.Len() < (dm.Config.OutgoingMax+trustPeerNum) &&
+				dm.outgoingConnections.Len() < (dm.Config.OutgoingMax+trustedPeerNum) &&
 				dm.pendingConnections.Len() < dm.Config.PendingMax {
 				dm.connectToRandomPeer()
+			}
+
+		case <-trustedPublicOutgoingConnectionsTicker:
+			// Maintain at least one trusted public peer connection
+			elapser.Register("outgoingConnectionsTicker")
+			trustedPeerNum := len(dm.filterOutgoingConnections(dm.Pex.TrustedPublic()))
+			if trustedPeerNum == 0 {
+				dm.connectToTrustedPeer()
 			}
 
 		case <-privateConnectionsTicker:
@@ -610,22 +617,33 @@ func (dm *Daemon) makePrivateConnections() {
 	for _, p := range peers {
 		logger.Info("Private peer attempt: %s", p.Addr)
 		if err := dm.connectToPeer(p); err != nil {
-			logger.Debug("Did not connect to private peer: %v", err)
+			logger.Error("Did not connect to private peer: %v", err)
 		}
 	}
 }
 
-func (dm *Daemon) connectToTrustPeer() {
+func (dm *Daemon) connectToTrustedPeer() {
 	if dm.Config.DisableIncomingConnections {
 		return
 	}
 
-	logger.Info("Connect to trusted peers")
-	// Make connections to all trusted peers
-	peers := dm.Pex.TrustedPublic()
-	for _, p := range peers {
-		dm.connectToPeer(p)
+	logger.Info("Connect to one trusted peer")
+
+	peers := dm.Pex.RandomTrustedPublic(0)
+	if len(peers) == 0 {
+		logger.Error("No trusted peers")
+		return
 	}
+
+	for _, p := range peers {
+		if err := dm.connectToPeer(peers[0]); err != nil {
+			logger.Error("connectToPeer failed: %v", err)
+			continue
+		}
+		break
+	}
+
+	return
 }
 
 // Attempts to connect to a random peer. If it fails, the peer is removed.
@@ -635,6 +653,7 @@ func (dm *Daemon) connectToRandomPeer() {
 	}
 
 	// Make a connection to a random (public) peer
+	// TODO -- this should not include trusted peers, those are connected separately
 	peers := dm.Pex.RandomPublic(0)
 	for _, p := range peers {
 		// Check if the peer has public port
@@ -908,6 +927,25 @@ func (dm *Daemon) handleMessageSendResult(r gnet.SendResult) {
 		dm.Visor.SetTxnsAnnounced(r.Message.(SendingTxnsMessage).GetTxns())
 	default:
 	}
+}
+
+// filterOutgoingConnections returns a list of outgoing connections that appear in the list of address
+func (dm *Daemon) filterOutgoingConnections(addrs []string) []string {
+	conns := dm.outgoingConnections.All()
+
+	connsMap := make(map[string]struct{}, len(conns))
+	for _, a := range conns {
+		connsMap[a] = struct{}{}
+	}
+
+	var filtered []string
+	for _, a := range addrs {
+		if _, ok := connsMap[a]; ok {
+			filtered = append(filtered, a)
+		}
+	}
+
+	return filtered
 }
 
 // LocalhostIP returns the address for localhost on the machine
