@@ -411,7 +411,7 @@ func (px *Pex) UpdateLastSeen(addr string) error {
 		return ErrInvalidAddress
 	}
 
-	return px.peerlist.updateLastSeen(cleanAddr, private)
+	return px.peerlist.updateLastSeen(cleanAddr)
 }
 
 // SetPrivate updates peer's private value

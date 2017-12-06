@@ -132,6 +132,8 @@ type DaemonConfig struct {
 	DataDirectory string
 	// How often to check and initiate an outgoing connection if needed
 	OutgoingRate time.Duration
+	// How often to check and initiate an outgoing trusted public connection if needed
+	TrustedPublicOutgoingRate time.Duration
 	// How often to re-attempt to fill any missing private (aka required)
 	// connections
 	PrivateRate time.Duration
@@ -636,7 +638,7 @@ func (dm *Daemon) connectToTrustedPeer() {
 	}
 
 	for _, p := range peers {
-		if err := dm.connectToPeer(peers[0]); err != nil {
+		if err := dm.connectToPeer(p); err != nil {
 			logger.Error("connectToPeer failed: %v", err)
 			continue
 		}
@@ -764,7 +766,7 @@ func (dm *Daemon) processMessageEvent(e MessageEvent) {
 	// Update the peer's LastSeen every time we process a message from them
 	if e.Context != nil && e.Context.Addr != "" {
 		if err := dm.Pex.UpdateLastSeen(e.Context.Addr); err != nil {
-			logger.Error(err)
+			logger.Error("UpdateLastSeen failed: %v", err)
 		}
 	}
 
@@ -929,8 +931,8 @@ func (dm *Daemon) handleMessageSendResult(r gnet.SendResult) {
 	}
 }
 
-// filterOutgoingConnections returns a list of outgoing connections that appear in the list of address
-func (dm *Daemon) filterOutgoingConnections(addrs []string) []string {
+// filterOutgoingConnections returns a list of outgoing connections that appear in the list of peers
+func (dm *Daemon) filterOutgoingConnections(peers pex.Peers) []string {
 	conns := dm.outgoingConnections.All()
 
 	connsMap := make(map[string]struct{}, len(conns))
@@ -939,9 +941,9 @@ func (dm *Daemon) filterOutgoingConnections(addrs []string) []string {
 	}
 
 	var filtered []string
-	for _, a := range addrs {
-		if _, ok := connsMap[a]; ok {
-			filtered = append(filtered, a)
+	for _, p := range peers {
+		if _, ok := connsMap[p.Addr]; ok {
+			filtered = append(filtered, p.Addr)
 		}
 	}
 

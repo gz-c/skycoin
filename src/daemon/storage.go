@@ -52,7 +52,7 @@ func (s *store) keys() []interface{} {
 	defer s.RUnlock()
 
 	keys := make([]interface{}, 0, len(s.value))
-	for _, k := range s.value {
+	for k := range s.value {
 		keys = append(keys, k)
 	}
 
@@ -194,7 +194,7 @@ func (oc *OutgoingConnections) All() []string {
 	for i, k := range keys {
 		addrs[i] = k.(string)
 	}
-	return keys
+	return addrs
 }
 
 // PendingConnections records pending connection peers
