@@ -54,6 +54,7 @@ Skycoin is a small part of OP Redecentralize and OP Darknet Plan.
     - [Releases](#releases)
         - [Pre-release testing](#pre-release-testing)
         - [Creating release builds](#creating-release-builds)
+        - [Release signing](#release-signing)
 
 <!-- /MarkdownTOC -->
 
@@ -376,3 +377,21 @@ Performs these actions before releasing:
 
 [Create Release builds](electron/README.md).
 
+#### Release signing
+
+Releases are signed with this PGP key:
+
+`0x5801631BD27C7874`
+
+The fingerprint for this key is:
+
+```
+pub   ed25519 2017-09-01 [SC] [expires: 2023-03-18]
+      10A7 22B7 6F2F FE7B D238  0222 5801 631B D27C 7874
+uid                      GZ-C SKYCOIN <token@protonmail.com>
+sub   cv25519 2017-09-01 [E] [expires: 2023-03-18]
+```
+
+Follow the [Tor Project's instructions for verifying signatures](https://www.torproject.org/docs/verifying-signatures.html.en).
+
+Releases and their signatures can be found on the [releases page](https://github.com/skycoin/skycoin/releases).
