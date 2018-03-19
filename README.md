@@ -392,7 +392,11 @@ uid                      GZ-C SKYCOIN <token@protonmail.com>
 sub   cv25519 2017-09-01 [E] [expires: 2023-03-18]
 ```
 
+Keybase.io account: https://keybase.io/gzc
+
 Follow the [Tor Project's instructions for verifying signatures](https://www.torproject.org/docs/verifying-signatures.html.en).
+
+If you can't or don't want to import the keys from a keyserver, the signing key is available in the repo: [gz-c.asc](gz-c.asc).
 
 Releases and their signatures can be found on the [releases page](https://github.com/skycoin/skycoin/releases).
 
