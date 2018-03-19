@@ -351,7 +351,7 @@ Instructions for doing this:
 5. Follow the steps in [pre-release testing](#pre-release-testing)
 6. Make a PR merging `develop` into `master`
 7. Review the PR and merge it
-8. Tag the master branch with the version number. Version tags start with `v`, e.g. `v0.20.0`.
+8. Tag the master branch with the version number. Version tags start with `v`, e.g. `v0.20.0`. Sign the tag. Example: `git tag -as v0.20.0 $COMMIT_ID`.
 9. Make sure that the client runs properly from the `master` branch
 10. Create the release builds from the `master` branch (see [Create Release builds](electron/README.md))
 
@@ -395,3 +395,6 @@ sub   cv25519 2017-09-01 [E] [expires: 2023-03-18]
 Follow the [Tor Project's instructions for verifying signatures](https://www.torproject.org/docs/verifying-signatures.html.en).
 
 Releases and their signatures can be found on the [releases page](https://github.com/skycoin/skycoin/releases).
+
+Instructions for generating a PGP key, publishing it, signing the tags and binaries:
+https://gist.github.com/gz-c/de3f9c43343b2f1a27c640fe529b067c
