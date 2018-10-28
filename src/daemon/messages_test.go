@@ -13,6 +13,7 @@ import (
 	"github.com/skycoin/skycoin/src/cipher/encoder"
 	"github.com/skycoin/skycoin/src/coin"
 	"github.com/skycoin/skycoin/src/daemon/gnet"
+	"github.com/skycoin/skycoin/src/util/useragent"
 )
 
 func TestIntroductionMessage(t *testing.T) {
@@ -69,7 +70,27 @@ func TestIntroductionMessage(t *testing.T) {
 			err: nil,
 		},
 		{
-			name: "INTR message with pubkey",
+			name: "INTR message with pubkey but empty user agent",
+			addr: "121.121.121.121:6000",
+			mockValue: daemonMockValue{
+				mirror:          10000,
+				protocolVersion: 1,
+				getMirrorPortResult: mirrorPortResult{
+					exist: false,
+				},
+				pubkey:           pubkey,
+				disconnectReason: ErrDisconnectInvalidUserAgent,
+			},
+			intro: &IntroductionMessage{
+				Mirror:  10001,
+				Port:    6000,
+				Version: 1,
+				Extra:   append(pubkey[:], []byte{0, 0, 0, 0}...),
+			},
+			err: ErrDisconnectInvalidUserAgent,
+		},
+		{
+			name: "INTR message with pubkey and user agent",
 			addr: "121.121.121.121:6000",
 			mockValue: daemonMockValue{
 				mirror:          10000,
@@ -83,12 +104,12 @@ func TestIntroductionMessage(t *testing.T) {
 				Mirror:  10001,
 				Port:    6000,
 				Version: 1,
-				Extra:   pubkey[:],
+				Extra:   append(pubkey[:], encoder.SerializeString("skycoin:0.24.1")...),
 			},
 			err: nil,
 		},
 		{
-			name: "INTR message with pubkey",
+			name: "INTR message with pubkey, user agent and additional data",
 			addr: "121.121.121.121:6000",
 			mockValue: daemonMockValue{
 				mirror:          10000,
@@ -102,26 +123,7 @@ func TestIntroductionMessage(t *testing.T) {
 				Mirror:  10001,
 				Port:    6000,
 				Version: 1,
-				Extra:   pubkey[:],
-			},
-			err: nil,
-		},
-		{
-			name: "INTR message with pubkey and additional data",
-			addr: "121.121.121.121:6000",
-			mockValue: daemonMockValue{
-				mirror:          10000,
-				protocolVersion: 1,
-				getMirrorPortResult: mirrorPortResult{
-					exist: false,
-				},
-				pubkey: pubkey,
-			},
-			intro: &IntroductionMessage{
-				Mirror:  10001,
-				Port:    6000,
-				Version: 1,
-				Extra:   append(pubkey[:], []byte("additional data")...),
+				Extra:   append(append(pubkey[:], encoder.SerializeString("skycoin:0.24.1")...), []byte("additional data")...),
 			},
 			err: nil,
 		},
@@ -141,7 +143,7 @@ func TestIntroductionMessage(t *testing.T) {
 				Mirror:  10001,
 				Port:    6000,
 				Version: 1,
-				Extra:   pubkey2[:],
+				Extra:   append(pubkey2[:], encoder.SerializeString("skycoin:0.24.1")...),
 			},
 			err: ErrDisconnectBlockchainPubkeyNotMatched,
 		},
@@ -164,6 +166,46 @@ func TestIntroductionMessage(t *testing.T) {
 				Extra:   []byte("invalid extra data"),
 			},
 			err: ErrDisconnectInvalidExtraData,
+		},
+		{
+			name: "INTR message with pubkey, malformed user agent bytes",
+			addr: "121.121.121.121:6000",
+			mockValue: daemonMockValue{
+				mirror:          10000,
+				protocolVersion: 1,
+				getMirrorPortResult: mirrorPortResult{
+					exist: false,
+				},
+				pubkey:           pubkey,
+				disconnectReason: ErrDisconnectInvalidExtraData,
+			},
+			intro: &IntroductionMessage{
+				Mirror:  10001,
+				Port:    6000,
+				Version: 1,
+				Extra:   append(pubkey[:], []byte{1, 2, 3}...),
+			},
+			err: ErrDisconnectInvalidExtraData,
+		},
+		{
+			name: "INTR message with pubkey, invalid user agent after parsing",
+			addr: "121.121.121.121:6000",
+			mockValue: daemonMockValue{
+				mirror:          10000,
+				protocolVersion: 1,
+				getMirrorPortResult: mirrorPortResult{
+					exist: false,
+				},
+				pubkey:           pubkey,
+				disconnectReason: ErrDisconnectInvalidUserAgent,
+			},
+			intro: &IntroductionMessage{
+				Mirror:  10001,
+				Port:    6000,
+				Version: 1,
+				Extra:   append(pubkey[:], encoder.SerializeString("skycoin:0241")...),
+			},
+			err: ErrDisconnectInvalidUserAgent,
 		},
 		{
 			name: "Disconnect self connection",
@@ -209,7 +251,7 @@ func TestIntroductionMessage(t *testing.T) {
 			err: ErrDisconnectUnexpectedError,
 		},
 		{
-			name: "incomming connection",
+			name: "incoming connection",
 			addr: "121.121.121.121:12345",
 			mockValue: daemonMockValue{
 				mirror:                  10000,
@@ -262,6 +304,10 @@ func TestIntroductionMessage(t *testing.T) {
 			d.On("DaemonConfig").Return(DaemonConfig{
 				ProtocolVersion:    int32(tc.mockValue.protocolVersion),
 				MinProtocolVersion: int32(tc.mockValue.minProtocolVersion),
+				UserAgent: useragent.Data{
+					Coin:    "skycoin",
+					Version: "0.24.1",
+				},
 			})
 			d.On("Mirror").Return(tc.mockValue.mirror)
 			d.On("IsDefaultConnection", tc.addr).Return(tc.mockValue.isDefaultConnection)

@@ -327,3 +327,38 @@ func (c *announcedTxnsCache) flush() map[cipher.SHA256]int64 {
 
 	return cache
 }
+
+// UserAgents records connections' user agents
+type UserAgents struct {
+	value map[string]string
+	sync.Mutex
+}
+
+// NewUserAgents creates a UserAgents
+func NewUserAgents() *UserAgents {
+	return &UserAgents{
+		value: make(map[string]string),
+	}
+}
+
+// Set sets a peer's user agent
+func (s *UserAgents) Set(addr, userAgent string) {
+	s.Lock()
+	defer s.Unlock()
+	s.value[addr] = userAgent
+}
+
+// Get returns a peer's user agent
+func (s *UserAgents) Get(addr string) (string, bool) {
+	s.Lock()
+	defer s.Unlock()
+	v, ok := s.value[addr]
+	return v, ok
+}
+
+// Remove removes a peer's user agent
+func (s *UserAgents) Remove(addr string) {
+	s.Lock()
+	defer s.Unlock()
+	delete(s.value, addr)
+}

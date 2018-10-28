@@ -12,10 +12,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/skycoin/skycoin/src/cipher"
+	"github.com/skycoin/skycoin/src/cipher/encoder"
 	"github.com/skycoin/skycoin/src/coin"
 	"github.com/skycoin/skycoin/src/daemon/gnet"
 	"github.com/skycoin/skycoin/src/daemon/pex"
 	"github.com/skycoin/skycoin/src/util/iputil"
+	"github.com/skycoin/skycoin/src/util/useragent"
 )
 
 // Message represent a packet to be serialized over the network by
@@ -224,7 +226,7 @@ func (gpm *GivePeersMessage) Process(d Daemoner) {
 	d.AddPeers(peers)
 }
 
-// IntroductionMessage jan IntroductionMessage is sent on first connect by both parties
+// IntroductionMessage is sent on first connect by both parties
 type IntroductionMessage struct {
 	c *gnet.MessageContext `enc:"-"`
 
@@ -233,19 +235,40 @@ type IntroductionMessage struct {
 	// Port is the port that this client is listening on
 	Port uint16
 	// Protocol version
-	Version int32
+	Version       int32
+	userAgentData useragent.Data `enc:"-"`
+
 	// Extra is extra bytes added to the struct to accommodate multiple versions of this packet.
-	// Currently it contains the blockchain pubkey but will accept a client that does not provide it.
+	// Currently it contains the blockchain pubkey and user agent but will accept a client that does not provide it.
+	// If any of this data is provided, it must include a valid blockchain pubkey and a valid user agent string (maxlen=256).
+	// Contents of extra:
+	// ExtraByte uint32 // length prefix of []byte
+	// Pubkey    cipher.Pubkey // blockchain pubkey
+	// UserAgent string `enc:",maxlen=256"`
 	Extra []byte `enc:",omitempty"`
 }
 
 // NewIntroductionMessage creates introduction message
-func NewIntroductionMessage(mirror uint32, version int32, port uint16, pubkey cipher.PubKey) *IntroductionMessage {
+func NewIntroductionMessage(mirror uint32, version int32, port uint16, pubkey cipher.PubKey, userAgent string) *IntroductionMessage {
+	if len(userAgent) > useragent.MaxLen {
+		logger.Panicf("user agent %q exceeds max len %d", userAgent, useragent.MaxLen)
+	}
+	if userAgent == "" {
+		logger.Panic("user agent is required")
+	}
+
+	userAgentSerialized := encoder.SerializeString(userAgent)
+
+	extra := make([]byte, len(pubkey)+len(userAgentSerialized))
+
+	copy(extra[:len(pubkey)], pubkey[:])
+	copy(extra[len(pubkey):], userAgentSerialized)
+
 	return &IntroductionMessage{
 		Mirror:  mirror,
 		Version: version,
 		Port:    port,
-		Extra:   pubkey[:],
+		Extra:   extra,
 	}
 }
 
@@ -317,6 +340,8 @@ func (intro *IntroductionMessage) Process(d Daemoner) {
 }
 
 func (intro *IntroductionMessage) verify(d Daemoner) (string, uint16, error) {
+	var userAgentData useragent.Data
+	mc := intro.c
 	addr := intro.c.Addr
 
 	ip, port, err := iputil.SplitAddr(addr)
@@ -353,7 +378,28 @@ func (intro *IntroductionMessage) verify(d Daemoner) (string, uint16, error) {
 			logger.WithField("addr", addr).Infof("Blockchain pubkey does not match, local: %s, remote: %s", d.BlockchainPubkey().Hex(), bcPubKey.Hex())
 			return "", 0, ErrDisconnectBlockchainPubkeyNotMatched
 		}
+		userAgentSerialized := intro.Extra[len(bcPubKey):]
+		userAgent, _, err := encoder.DeserializeString(userAgentSerialized, useragent.MaxLen)
+		if err != nil {
+			logger.WithError(err).Info("Extra data user agent string could not be deserialized")
+			if err := d.Disconnect(mc.Addr, ErrDisconnectInvalidExtraData); err != nil {
+				logger.WithError(err).WithField("addr", mc.Addr).Warning("Disconnect")
+			}
+			return "", 0, ErrDisconnectInvalidExtraData
+		}
+
+		userAgentData, err = useragent.Parse(useragent.Sanitize(userAgent))
+		if err != nil {
+			logger.WithError(err).WithField("userAgent", userAgent).Info("User agent is invalid")
+			if err := d.Disconnect(mc.Addr, ErrDisconnectInvalidUserAgent); err != nil {
+				logger.WithError(err).WithField("addr", mc.Addr).Warning("Disconnect")
+			}
+			return "", 0, ErrDisconnectInvalidUserAgent
+		}
+
 	}
+
+	intro.userAgentData = userAgentData
 
 	// Disconnect if connected twice to the same peer (judging by ip:mirror)
 	knownPort, exists := d.GetMirrorPort(addr, intro.Mirror)
