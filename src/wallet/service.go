@@ -514,8 +514,8 @@ func (serv *Service) RecoverWallet(wltName, seed string, password []byte) (*Wall
 		return nil, ErrWalletNotEncrypted
 	}
 
-	if w.Type() != WalletTypeDeterministic {
-		return nil, ErrWalletNotDeterministic
+	if !IsValidWalletType(w.Type()) {
+		return nil, ErrInvalidWalletType
 	}
 
 	// Generate the first address from the seed

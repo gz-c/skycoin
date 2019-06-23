@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"encoding/hex"
 
 	"github.com/skycoin/skycoin/src/cipher"
+	"github.com/skycoin/skycoin/src/cipher/bip39"
+	"github.com/skycoin/skycoin/src/cipher/bip44"
 
 	"github.com/skycoin/skycoin/src/util/logging"
 )
@@ -76,6 +79,8 @@ var (
 	ErrWalletNotDeterministic = NewError(errors.New("wallet type is not deterministic"))
 	// ErrInvalidCoinType is returned for invalid coin types
 	ErrInvalidCoinType = NewError(errors.New("invalid coin type"))
+	// ErrInvalidWalletType is returned for invalid wallet types
+	ErrInvalidWalletType = NewError(errors.New("invalid wallet type"))
 )
 
 const (
@@ -92,6 +97,10 @@ const (
 
 	// WalletTypeDeterministic deterministic wallet type
 	WalletTypeDeterministic = "deterministic"
+	// WalletTypeBip44 bip44 HD wallet type
+	WalletTypeBip44 = "bip44"
+
+	defaultWalletType = WalletTypeBip44
 )
 
 // ResolveCoinType normalizes a coin type string to a CoinType constant
@@ -103,6 +112,16 @@ func ResolveCoinType(s string) (CoinType, error) {
 		return CoinTypeBitcoin, nil
 	default:
 		return CoinType(""), ErrInvalidCoinType
+	}
+}
+
+// IsValidWalletType returns true if t is a valid wallet type
+func IsValidWalletType(t string) bool {
+	switch t {
+	case WalletTypeDeterministic, WalletTypeBip44:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -134,13 +153,14 @@ func NewWalletFilename() string {
 
 // Options options that could be used when creating a wallet
 type Options struct {
-	Coin       CoinType   // coin type, skycoin, bitcoin, etc.
-	Label      string     // wallet label.
-	Seed       string     // wallet seed.
-	Encrypt    bool       // whether the wallet need to be encrypted.
-	Password   []byte     // password that would be used for encryption, and would only be used when 'Encrypt' is true.
-	CryptoType CryptoType // wallet encryption type, scrypt-chacha20poly1305 or sha256-xor.
-	ScanN      uint64     // number of addresses that're going to be scanned for a balance. The highest address with a balance will be used.
+	Coin       CoinType   // coin type: skycoin, bitcoin, etc.
+	Type       string     // wallet type: deterministic, bip44
+	Label      string     // wallet label
+	Seed       string     // wallet seed
+	Encrypt    bool       // if the wallet needs to be encrypted
+	Password   []byte     // password that would be used for encryption, and would only be used when 'Encrypt' is true
+	CryptoType CryptoType // wallet encryption type, scrypt-chacha20poly1305 or sha256-xor
+	ScanN      uint64     // number of addresses that will be scanned for a balance. The highest address with a balance will be used
 	GenerateN  uint64     // number of addresses to generate, regardless of balance
 }
 
@@ -174,6 +194,14 @@ func newWallet(wltName string, opts Options, bg BalanceGetter) (*Wallet, error) 
 	case CoinTypeSkycoin, CoinTypeBitcoin:
 	default:
 		return nil, fmt.Errorf("Invalid coin type %q", coin)
+	}
+
+	walletType := opts.Type
+	if walletType == "" {
+		walletType = defaultWalletType
+	}
+	if !IsValidWalletType(opts.Type) {
+		return nil, fmt.Errorf("Invalid wallet type %q", walletType)
 	}
 
 	w := &Wallet{
@@ -748,6 +776,90 @@ func (w *Wallet) setTimestamp(t int64) {
 
 // GenerateAddresses generates addresses
 func (w *Wallet) GenerateAddresses(num uint64) ([]cipher.Addresser, error) {
+	switch w.Type() {
+	case WalletTypeDeterministic:
+		return w.generateAddressesDeterministic(num)
+	case WalletTypeBip44:
+		return w.generateAddressesBip44(num)
+	default:
+		return nil, ErrInvalidWalletType
+	}
+}
+
+func (w *Wallet) generateAddressesBip44(num uint64) ([]cipher.Addresser, error) {
+	if num == 0 {
+		return nil, nil
+	}
+
+	if num > math.MaxUint32 {
+		return nil, NewError(errors.New("generateAddressesBip44 num too large"))
+	}
+
+	if w.IsEncrypted() {
+		return nil, ErrWalletEncrypted
+	}
+
+	// w.seed() must return a valid bip39 mnemonic
+	// TODO -- support seed passphrases
+	seed, err := bip39.NewSeed(w.seed(), "")
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO -- support other coin types. Note that this is different from
+	// the coinType field in the wallet. This is the bip44 coin type, which
+	// will be different for each fiber coin, whereas the wallet's coinType
+	// field is always "skycoin" for all fiber coins
+	// TODO -- ideas: add a new field to disambiguate "address type" (walletCoinType)
+	// from bip44 coin_type.
+	// Add API control to allow custom paths to be added
+	// Use fiber.toml to configure the default bip44 coin type
+	c, err := bip44.NewCoin(seed, bip44.CoinTypeSkycoin)
+	if err != nil {
+		log.Critical().WithError(err).Error("Failed to derive the bip44 purpose node, this seed cannot be used for bip44")
+		return nil, err
+	}
+
+	// TODO -- technically we could skip to the next account
+	account, err := c.Account()
+	if err != nil {
+		log.Critical().WithError(err).Error("Failed to derive the bip44 account node, this seed cannot be used for bip44")
+		return nil, err
+	}
+
+	external, err := account.External()
+	if err != nil {
+		log.Critical().WithError(err).Error("Failed to derive the bip44 external chain node, this seed cannot be used for bip44")
+		return nil, err
+	}
+
+	var seckeys []cipher.SecKey
+	for i := uint32(0); i < uint32(num); i++ {
+		k, err := external.NewPrivateChildKey(i)
+		if err != nil {
+			log.Critical().WithError(err).Errorf("Failed to derive the bip44 external chain node child element %d", i)
+			continue
+		}
+
+		seckeys = append(seckeys, k.Key)
+	}
+
+	addrs := make([]cipher.Addresser, len(seckeys))
+	makeAddress := w.addressConstructor()
+	for i, s := range seckeys {
+		p := cipher.MustPubKeyFromSecKey(s)
+		a := makeAddress(p)
+		addrs[i] = a
+		w.Entries = append(w.Entries, Entry{
+			Address: a,
+			Secret:  s,
+			Public:  p,
+		})
+	}
+	return addrs, nil
+}
+
+func (w *Wallet) generateAddressesDeterministic(num uint64) ([]ciper.Addresser, error) {
 	if num == 0 {
 		return nil, nil
 	}
