@@ -1,3 +1,12 @@
+// This is a version of HwWalletDaemonService that uses a queue to ensure that
+// only one operation is carried out at a time. It may be good for testing in
+// some circunstances as it allow to see the exact request order without having
+// to worry about racing conditions, but  to use it in production it needs more
+// testing, to be sure that to be sure that the queue is not going to get stuck
+// because of some error. This testing has to be done after solving the problems
+// that make the firmware respond extremely slow after some calls.
+
+/*
 import { Injectable, NgZone } from '@angular/core';
 import { ApiService } from './api.service';
 import { Http, RequestOptions, Headers } from '@angular/http';
@@ -7,7 +16,7 @@ import { HwWalletSeedWordService } from './hw-wallet-seed-word.service';
 import { ISubscription } from 'rxjs/Subscription';
 import { BehaviorSubject } from 'rxjs/BehaviorSubject';
 import 'rxjs/add/operator/timeout';
-import { AppConfig } from '../app.config';
+import { Subject } from 'rxjs/Subject';
 
 @Injectable()
 export class HwWalletDaemonService {
@@ -20,6 +29,13 @@ export class HwWalletDaemonService {
   private checkHwSubscription: ISubscription;
   private hwConnected = false;
   private connectionEventSubject = new BehaviorSubject<boolean>(false);
+  private waiting = false;
+  private busy = false;
+  private queueDelay = 32;
+  private requestQueue: {
+    operation: Observable<any>
+    subject: Subject<any>;
+  }[] = [];
 
   get connectionEvent() {
     return this.connectionEventSubject.asObservable();
@@ -34,39 +50,102 @@ export class HwWalletDaemonService {
   ) { }
 
   get(route: string) {
-    return this.checkResponse(this.http.get(
+    const trigger = new Subject<any>();
+    this.requestQueue.push({
+      subject: trigger,
+      operation: trigger.flatMap(() => this.checkResponse(this.http.get(
       this.url + route,
       this.returnRequestOptions(),
-    ), route.includes('/available'));
+        ), route.includes('/available'))),
+    });
+
+    setTimeout(() => this.tryToRunNextRequest(), this.queueDelay);
+
+    return this.requestQueue[this.requestQueue.length - 1].operation;
   }
 
   post(route: string, params = {}) {
-    return this.checkResponse(this.http.post(
+    const trigger = new Subject<any>();
+    this.requestQueue.push({
+      subject: trigger,
+      operation: trigger.flatMap(() => this.checkResponse(this.http.post(
       this.url + route,
       JSON.stringify(params),
       this.returnRequestOptions(),
-    ));
+        ))),
+    });
+
+    setTimeout(() => this.tryToRunNextRequest(), this.queueDelay);
+
+    return this.requestQueue[this.requestQueue.length - 1].operation;
   }
 
   put(route: string, params: any = null, sendMultipartFormData = false, smallTimeout = false) {
-    return this.checkResponse(this.http.put(
+    const trigger = new Subject<any>();
+    this.requestQueue.push({
+      subject: trigger,
+      operation: trigger.flatMap(() => this.checkResponse(this.http.put(
       this.url + route,
       params,
       this.returnRequestOptions(sendMultipartFormData),
-    ), false, smallTimeout);
+        ), false, smallTimeout)),
+    });
+
+    setTimeout(() => this.tryToRunNextRequest(), this.queueDelay);
+
+    return this.requestQueue[this.requestQueue.length - 1].operation;
   }
 
   delete(route: string) {
-    return this.checkResponse(this.http.delete(
+    const trigger = new Subject<any>();
+    this.requestQueue.push({
+      subject: trigger,
+      operation: trigger.flatMap(() => this.checkResponse(this.http.delete(
       this.url + route,
       this.returnRequestOptions(),
-    ));
+        ))),
+    });
+
+    setTimeout(() => this.tryToRunNextRequest(), this.queueDelay);
+
+    return this.requestQueue[this.requestQueue.length - 1].operation;
+  }
+
+  private tryToRunNextRequest() {
+    if (!this.busy) {
+      if (this.requestQueue.length > 0) {
+        this.runNextRequest();
+      }
+    }
+  }
+
+  private runNextRequest() {
+    this.prepareToStart();
+    this.requestQueue[0].subject.next(1);
+    this.requestQueue[0].subject.complete();
+  }
+
+  private prepareToStart() {
+    if (this.busy) {
+      throw new Error('The service is busy.');
+    }
+    this.busy = true;
   }
 
   private checkResponse(response: Observable<any>, checkingConnected = false, smallTimeout = false) {
     return response
       .timeout(smallTimeout ? 30000 : 50000)
       .flatMap((res: any) => {
+        if (!this.waiting) {
+          this.waiting = true;
+          setTimeout(() => {
+            this.waiting = false;
+            this.busy = false;
+            this.requestQueue.shift();
+            this.tryToRunNextRequest();
+          }, this.queueDelay);
+        }
+
         const finalResponse = res.json();
 
         if (checkingConnected) {
@@ -98,6 +177,16 @@ export class HwWalletDaemonService {
         return Observable.of(finalResponse);
       })
       .catch((error: any) => {
+        if (!this.waiting) {
+          this.waiting = true;
+          setTimeout(() => {
+            this.waiting = false;
+            this.busy = false;
+            this.requestQueue.shift();
+            this.tryToRunNextRequest();
+          }, this.queueDelay);
+        }
+
         if (error && error.name && error.name === 'TimeoutError') {
           this.put('/cancel').subscribe();
 
@@ -162,3 +251,4 @@ export class HwWalletDaemonService {
   }
 
 }
+*/

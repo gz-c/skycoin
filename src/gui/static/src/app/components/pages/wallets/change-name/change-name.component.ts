@@ -7,9 +7,9 @@ import { ButtonComponent } from '../../../layout/button/button.component';
 import { MessageIcons } from '../../../layout/hardware-wallet/hw-message/hw-message.component';
 import { HwWalletService } from '../../../../services/hw-wallet.service';
 import { TranslateService } from '@ngx-translate/core';
-import { MatSnackBar } from '@angular/material';
-import { getHardwareWalletErrorMsg, showSnackbarError } from '../../../../utils/errors';
+import { getHardwareWalletErrorMsg } from '../../../../utils/errors';
 import { ISubscription } from 'rxjs/Subscription';
+import { MsgBarService } from '../../../../services/msg-bar.service';
 
 enum States {
   Initial,
@@ -39,6 +39,7 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
 
   private newLabel: string;
   private hwConnectionSubscription: ISubscription;
+  private operationSubscription: ISubscription;
 
   constructor(
     public dialogRef: MatDialogRef<ChangeNameComponent>,
@@ -47,7 +48,7 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
     private walletService: WalletService,
     private hwWalletService: HwWalletService,
     private translateService: TranslateService,
-    private snackbar: MatSnackBar,
+    private msgBarService: MsgBarService,
   ) {}
 
   ngOnInit() {
@@ -69,9 +70,12 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
     if (this.hwConnectionSubscription) {
       this.hwConnectionSubscription.unsubscribe();
+    }
+    if (this.operationSubscription) {
+      this.operationSubscription.unsubscribe();
     }
   }
 
@@ -84,7 +88,7 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
     this.button.setLoading();
 
     this.finishRenaming(this.form.value.label);
@@ -94,14 +98,14 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
     this.newLabel = newLabel;
 
     if (!this.data.wallet.isHardware) {
-      this.walletService.renameWallet(this.data.wallet, this.newLabel)
+      this.operationSubscription = this.walletService.renameWallet(this.data.wallet, this.newLabel)
         .subscribe(() => this.dialogRef.close(this.newLabel));
     } else {
       if (this.data.newName) {
         this.currentState = States.WaitingForConfirmation;
       }
 
-      this.hwWalletService.checkIfCorrectHwConnected(this.data.wallet.addresses[0].address)
+      this.operationSubscription = this.hwWalletService.checkIfCorrectHwConnected(this.data.wallet.addresses[0].address)
         .flatMap(() => {
           this.currentState = States.WaitingForConfirmation;
 
@@ -119,7 +123,7 @@ export class ChangeNameComponent implements OnInit, OnDestroy {
               response.errorMsg = getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err);
               this.dialogRef.close(response);
             } else {
-              showSnackbarError(this.snackbar, getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
+              this.msgBarService.showError(getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
               this.currentState = States.Initial;
               if (this.button) {
                 this.button.resetState();

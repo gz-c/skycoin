@@ -1,4 +1,3 @@
-import { MatSnackBar, MatSnackBarConfig } from '@angular/material';
 import { HwWalletService, OperationResults } from '../services/hw-wallet.service';
 import { TranslateService } from '@ngx-translate/core';
 import { AppConfig } from '../app.config';
@@ -27,13 +26,6 @@ export function parseResponseMessage(body: string): string {
   return body;
 }
 
-export function showSnackbarError(snackbar: MatSnackBar, body: string, duration = 300000) {
-  const config = new MatSnackBarConfig();
-  config.duration = duration;
-
-  snackbar.open(parseResponseMessage(body), null, config);
-}
-
 export function getHardwareWalletErrorMsg(hwWalletService: HwWalletService, translateService: TranslateService, error: any): string {
   if (!AppConfig.useHwWalletDaemon && !window['ipcRenderer'].sendSync('hwGetDeviceConnectedSync')) {
     return translateService.instant('hardware-wallet.general.error-disconnected');
@@ -54,8 +46,8 @@ export function getHardwareWalletErrorMsg(hwWalletService: HwWalletService, tran
       return translateService.instant('hardware-wallet.errors.timeout');
     } else if (error.result === OperationResults.Disconnected) {
       return translateService.instant('hardware-wallet.general.error-disconnected');
-    } else if (error.result === OperationResults.NotInFirmwareMode) {
-      return translateService.instant('hardware-wallet.errors.not-in-firmware-mode');
+    } else if (error.result === OperationResults.NotInBootloaderMode) {
+      return translateService.instant('hardware-wallet.errors.not-in-bootloader-mode');
     }
   }
 

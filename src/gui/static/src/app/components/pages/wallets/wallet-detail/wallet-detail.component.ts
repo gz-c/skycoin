@@ -5,8 +5,7 @@ import { MatDialog, MatDialogConfig, MatDialogRef } from '@angular/material/dial
 import { ChangeNameComponent, ChangeNameData } from '../change-name/change-name.component';
 import { QrCodeComponent } from '../../../layout/qr-code/qr-code.component';
 import { PasswordDialogComponent } from '../../../layout/password-dialog/password-dialog.component';
-import { MatSnackBar } from '@angular/material';
-import { showSnackbarError, getHardwareWalletErrorMsg } from '../../../../utils/errors';
+import { getHardwareWalletErrorMsg } from '../../../../utils/errors';
 import { NumberOfAddressesComponent } from '../number-of-addresses/number-of-addresses';
 import { TranslateService } from '@ngx-translate/core';
 import { HwWalletService } from '../../../../services/hw-wallet.service';
@@ -15,6 +14,8 @@ import { showConfirmationModal } from '../../../../utils';
 import { AppConfig } from '../../../../app.config';
 import { Router } from '@angular/router';
 import { HwConfirmAddressDialogComponent, AddressConfirmationParams } from '../../../layout/hardware-wallet/hw-confirm-address-dialog/hw-confirm-address-dialog.component';
+import { MsgBarService } from '../../../../services/msg-bar.service';
+import { ISubscription } from 'rxjs/Subscription';
 
 @Component({
   selector: 'app-wallet-detail',
@@ -28,22 +29,30 @@ export class WalletDetailComponent implements OnDestroy {
   preparingToEdit = false;
 
   private howManyAddresses: number;
+  private editSubscription: ISubscription;
+  private confirmSubscription: ISubscription;
 
   constructor(
     private dialog: MatDialog,
     private walletService: WalletService,
-    private snackbar: MatSnackBar,
+    private msgBarService: MsgBarService,
     private hwWalletService: HwWalletService,
     private translateService: TranslateService,
     private router: Router,
   ) { }
 
   ngOnDestroy() {
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
+    if (this.editSubscription) {
+      this.editSubscription.unsubscribe();
+    }
+    if (this.confirmSubscription) {
+      this.confirmSubscription.unsubscribe();
+    }
   }
 
   editWallet() {
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
 
     if (this.wallet.isHardware) {
       if (this.preparingToEdit) {
@@ -51,7 +60,7 @@ export class WalletDetailComponent implements OnDestroy {
       }
 
       this.preparingToEdit = true;
-      this.hwWalletService.checkIfCorrectHwConnected(this.wallet.addresses[0].address)
+      this.editSubscription = this.hwWalletService.checkIfCorrectHwConnected(this.wallet.addresses[0].address)
         .flatMap(() => this.walletService.getHwFeaturesAndUpdateData(this.wallet))
         .subscribe(
           () => {
@@ -59,7 +68,7 @@ export class WalletDetailComponent implements OnDestroy {
             this.preparingToEdit = false;
           },
           err => {
-            showSnackbarError(this.snackbar, getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
+            this.msgBarService.showError(getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
             this.preparingToEdit = false;
           },
         );
@@ -84,7 +93,7 @@ export class WalletDetailComponent implements OnDestroy {
       return;
     }
 
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
 
     if (!this.wallet.isHardware) {
       const config = new MatDialogConfig();
@@ -130,7 +139,7 @@ export class WalletDetailComponent implements OnDestroy {
   }
 
   deleteWallet() {
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
 
     const confirmationData: ConfirmationData = {
       text: this.translateService.instant('wallet.delete-confirmation', {name: this.wallet.label}),
@@ -179,9 +188,13 @@ export class WalletDetailComponent implements OnDestroy {
   }
 
   confirmAddress(address, addressIndex, showCompleteConfirmation) {
-    this.snackbar.dismiss();
+    this.msgBarService.hide();
 
-    this.hwWalletService.checkIfCorrectHwConnected(this.wallet.addresses[0].address).subscribe(response => {
+    if (this.confirmSubscription) {
+      this.confirmSubscription.unsubscribe();
+    }
+
+    this.confirmSubscription = this.hwWalletService.checkIfCorrectHwConnected(this.wallet.addresses[0].address).subscribe(response => {
       const data = new AddressConfirmationParams();
       data.address = address;
       data.addressIndex = addressIndex;
@@ -193,7 +206,7 @@ export class WalletDetailComponent implements OnDestroy {
       config.data = data;
       this.dialog.open(HwConfirmAddressDialogComponent, config);
     }, err => {
-      showSnackbarError(this.snackbar, getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
+      this.msgBarService.showError(getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
     });
   }
 
@@ -265,9 +278,9 @@ export class WalletDetailComponent implements OnDestroy {
       procedure.subscribe(() => this.creatingAddress = false,
         err => {
           if (!this.wallet.isHardware ) {
-            showSnackbarError(this.snackbar, err);
+            this.msgBarService.showError(err);
           } else {
-            showSnackbarError(this.snackbar, getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
+            this.msgBarService.showError(getHardwareWalletErrorMsg(this.hwWalletService, this.translateService, err));
           }
           this.creatingAddress = false;
         },
