@@ -149,6 +149,7 @@ export class GetWalletsResponseMeta {
   label: string;
   filename: string;
   encrypted: boolean;
+  type: string;
 }
 
 export class GetWalletsResponseEntry {

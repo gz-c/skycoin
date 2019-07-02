@@ -53,6 +53,8 @@ export class ApiService {
   getWallets(): Observable<Wallet[]> {
     return this.get('wallets')
       .map((response: GetWalletsResponseWallet[]) => {
+        response = response.filter(wallet => wallet.meta.type === 'deterministic');
+
         const wallets: Wallet[] = [];
         response.forEach(wallet => {
           wallets.push(<Wallet> {
